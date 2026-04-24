@@ -1,0 +1,12 @@
+{
+  "name": "TriageCare AI",
+  "description": "AI-driven healthcare triage system for rural healthcare. Analyzes skin and eye conditions using AWS Rekognition.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "AI Vision",
+    "Healthcare Triage",
+    "Cloud Storage"
+  ]
+}

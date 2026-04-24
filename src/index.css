@@ -1,0 +1,45 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-glass-white: rgba(255, 255, 255, 0.03);
+  --color-glass-border: rgba(255, 255, 255, 0.1);
+  --color-brand-accent: #38bdf8;
+  --color-brand-bg: #0f172a;
+  --color-brand-bg-light: #1e293b;
+  
+  --color-severity-high: #f87171;
+  --color-severity-medium: #fbbf24;
+  --color-severity-low: #4ade80;
+}
+
+@layer base {
+  body {
+    @apply bg-brand-bg text-slate-100 font-sans antialiased;
+    background: radial-gradient(circle at 0% 0%, var(--color-brand-bg-light) 0%, var(--color-brand-bg) 100%);
+    min-height: 100vh;
+  }
+}
+
+.glass-panel {
+  @apply bg-glass-white backdrop-blur-xl border border-glass-border;
+}
+
+.sidebar-glass {
+  @apply bg-black/20 backdrop-blur-lg border-r border-white/5;
+}
+
+.aws-node {
+  @apply font-mono text-[11px] text-slate-400 bg-black/30 p-2 rounded-md mb-2 border-l-2 border-brand-accent;
+}
+
+.status-pill {
+  @apply bg-green-500/10 text-green-400 px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-2 border border-green-500/20;
+}
+
+.severity-badge {
+  @apply py-4 px-6 rounded-xl text-center font-extrabold text-2xl tracking-widest uppercase;
+}
