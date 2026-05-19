@@ -9,19 +9,24 @@ import {
   Loader2,
   Award,
 } from 'lucide-react';
-import { GoogleGenAI, Type } from "@google/genai";
 import { useLanguage } from '../lib/LanguageContext';
+import { PatientSymptomLog, AISignals } from '../lib/severityEngine';
 
 interface TriageResult {
   patientId: string;
   status: 'PENDING' | 'COMPLETED';
-  severity?: 'LOW' | 'MEDIUM' | 'HIGH';
-  condition?: string;
-  confidence?: number;
-  advice?: string;
+  severity?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  possibleCondition?: string;
+  confidence?: string;
+  clinicalSummary?: string;
+  recommendedAction?: string;
+  emergency?: boolean;
   location: string;
   timestamp: string;
   imageUrl?: string;
+  patientSymptoms?: PatientSymptomLog;
+  aiSymptoms?: AISignals;
+  triageReasoning?: string[];
   hospital?: {
     name: string;
     address: string;
@@ -36,97 +41,56 @@ export default function Result() {
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { t, language, setLanguage } = useLanguage();
-  const [AnalyzingForNewLanguage, setAnalyzingForNewLanguage] = useState(false);
+  const [analyzingForNewLanguage, setAnalyzingForNewLanguage] = useState(false);
 
   // Handle language change re-triggering analysis
   useEffect(() => {
+    // Only re-analyze if we already have an image and aren't already loading the initial result
     if (result?.imageUrl && !loading) {
       setAnalyzingForNewLanguage(true);
       analyzeImage(result.imageUrl);
     }
   }, [language]);
 
-  const analyzeImage = async (imageUrl: string) => {
+  const analyzeImage = async (imageUrl: string, initialSymptoms?: PatientSymptomLog) => {
     try {
       setAnalyzing(true);
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      setError(null);
       
-      // Fetch the image and convert to base64
-      const imgResponse = await fetch(imageUrl);
-      const blob = await imgResponse.blob();
-      const base64Data = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
-        reader.readAsDataURL(blob);
-      });
-
-      const languageNames: Record<string, string> = {
-        en: "English",
-        hi: "Hindi",
-        ta: "Tamil",
-        te: "Telugu",
-        kn: "Kannada"
-      };
-
-      const prompt = `You are a medical triage assistant. Analyze this image of a skin or eye condition.
+      console.log(`[CLIENT] Triggering server-side analysis for Patient ID: ${patientId}`);
       
-      RULES:
-      1. Distinguish between skin conditions (e.g. Vitiligo, Skin Rash, Burn) and eye conditions (e.g. Conjunctivitis).
-      2. Recognition: Identify Vitiligo correctly as a pigment disorder (not an infection).
-      3. Names: Use simple, common names for conditions that anyone can understand.
-      4. Language: Respond using ${languageNames[language]} language for the "condition" and "advice" fields.
-      5. Care Management: The "advice" field MUST contain clear instructions on what the patient should do next and how to manage the condition until they see a doctor.
-      6. Output: Provide condition name, severity based on visual urgency, a confidence score (0.0 to 1.0), and the management advice.
-      
-      Return JSON only.`;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: [
-          {
-            parts: [
-              { text: prompt },
-              { inlineData: { data: base64Data, mimeType: blob.type } }
-            ]
-          }
-        ],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              condition: { type: Type.STRING },
-              severity: { type: Type.STRING, enum: ["LOW", "MEDIUM", "HIGH"] },
-              confidence: { type: Type.NUMBER },
-              advice: { type: Type.STRING }
-            },
-            required: ["condition", "severity", "confidence", "advice"]
-          }
-        }
-      });
-
-      const aiResult = JSON.parse(response.text);
-      
-      // Update backend with results
-      const patchResponse = await fetch(`/api/result/${patientId}`, {
-        method: 'PATCH',
+      const response = await fetch(`/api/analyze/${patientId}`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...aiResult,
-          status: 'COMPLETED'
-        })
+        body: JSON.stringify({ language })
       });
 
-      if (!patchResponse.ok) throw new Error("Failed to save diagnosis");
+      const contentType = response.headers.get("content-type");
+      if (!response.ok) {
+        if (contentType && contentType.includes("application/json")) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || "Analysis failed on the server.");
+        } else {
+          const text = await response.text();
+          console.error("Non-JSON error response:", text);
+          throw new Error(`Server error (${response.status}): Unexpected response format.`);
+        }
+      }
 
-      const updatedRecord = await patchResponse.json();
-      setResult(updatedRecord);
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await response.text();
+        console.error("Non-JSON success? response:", text);
+        throw new Error("Server returned unexpected format instead of data.");
+      }
+
+      const analyzedRecord = await response.json();
+      setResult(analyzedRecord);
     } catch (err: any) {
-      console.error("AI Analysis Error:", err);
-      // Fallback: update status to error or manual review
-      setError("AI analysis encountered an error. Manual clinical review suggested.");
+      console.error("Analysis Error:", err);
+      setError(err.message || "An unexpected error occurred during analysis.");
     } finally {
       setAnalyzing(false);
+      setAnalyzingForNewLanguage(false);
     }
   };
 
@@ -134,16 +98,30 @@ export default function Result() {
     const fetchResult = async () => {
       try {
         const response = await fetch(`/api/result/${patientId}`);
+        const contentType = response.headers.get("content-type");
+
+        if (!response.ok) {
+          if (contentType && contentType.includes("application/json")) {
+            const data = await response.json();
+            throw new Error(data.error || 'Result not found');
+          } else {
+            const text = await response.text();
+            console.error("Non-JSON error response for result fetch:", text);
+            throw new Error(`Server error (${response.status}) when fetching result.`);
+          }
+        }
+
+        if (!contentType || !contentType.includes("application/json")) {
+          throw new Error("Server returned non-JSON format for result.");
+        }
+
         const data = await response.json();
-
-        if (!response.ok) throw new Error(data.error || 'Result not found');
-
         setResult(data);
         setLoading(false);
 
         // If still pending, trigger the Gemini AI analysis
         if (data.status === 'PENDING' && data.imageUrl) {
-          analyzeImage(data.imageUrl);
+          analyzeImage(data.imageUrl, data.patientSymptoms);
         }
       } catch (err: any) {
         setError(err.message);
@@ -165,15 +143,26 @@ export default function Result() {
 
   if (error) {
     return (
-      <div className="pt-32 px-4 max-w-lg mx-auto text-center space-y-6">
-        <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto">
+      <div className="pt-32 px-4 max-w-2xl mx-auto text-center space-y-6">
+        <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto border border-red-500/20">
           <AlertTriangle className="text-red-500 w-10 h-10" />
         </div>
-        <h2 className="text-2xl font-bold">Oops! Record Error</h2>
-        <p className="text-slate-500">{error}</p>
-        <Link to="/upload" className="inline-block px-6 py-3 bg-brand-primary text-white rounded-full font-bold">
-          Try New Upload
-        </Link>
+        <h2 className="text-2xl font-bold text-white">Analysis Interrupted</h2>
+        <div className="glass-panel p-6 rounded-2xl border border-red-500/10 bg-red-500/5">
+          <p className="text-slate-300 text-sm leading-relaxed">{error}</p>
+        </div>
+        
+        <div className="flex justify-center gap-4">
+          <Link to="/upload" className="px-6 py-3 bg-brand-primary text-white rounded-xl font-bold hover:scale-105 transition-all">
+            Try Another Image
+          </Link>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="px-6 py-3 bg-white/5 text-slate-300 border border-white/10 rounded-xl font-bold hover:bg-white/10 transition-all"
+          >
+            Retry Analysis
+          </button>
+        </div>
       </div>
     );
   }
@@ -199,7 +188,8 @@ export default function Result() {
               language === code 
               ? 'bg-brand-accent text-brand-bg' 
               : 'text-slate-500 hover:text-slate-300'
-            }`}
+            } ${analyzing ? 'opacity-50 cursor-not-allowed' : ''}`}
+            disabled={analyzing}
           >
             {lang}
           </button>
@@ -230,7 +220,10 @@ export default function Result() {
             className="glass-panel p-10 rounded-[2.5rem] flex flex-col items-center justify-center text-center relative overflow-hidden"
           >
             <div className="w-full flex justify-between items-center mb-8">
-              <span className="text-[11px] uppercase tracking-[0.2em] text-slate-500 font-bold">{t('visionEngineAnalysis')}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] uppercase tracking-[0.2em] text-slate-500 font-bold">{t('visionEngineAnalysis')}</span>
+                {analyzingForNewLanguage && <Loader2 className="w-3 h-3 text-brand-accent animate-spin" />}
+              </div>
               <LangSwitcher />
             </div>
             
@@ -245,6 +238,7 @@ export default function Result() {
               ) : (
                 <motion.div key="done" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="w-full space-y-6">
                   <div className={`severity-badge w-full ${
+                    result?.severity === 'CRITICAL' ? 'bg-red-600/20 text-red-500 border border-red-600/40 ring-4 ring-red-600/10' :
                     result?.severity === 'HIGH' ? 'bg-red-500/15 text-red-400 border border-red-500/30' :
                     result?.severity === 'MEDIUM' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' : 
                     'bg-green-500/15 text-green-400 border border-green-500/30'
@@ -252,9 +246,10 @@ export default function Result() {
                     {result?.severity} {t('severity')}
                   </div>
 
-                  <div className="pt-4 pb-2 border-b border-white/5">
-                    <h2 className="text-3xl font-black text-white tracking-tight uppercase leading-none">
-                      {result?.condition || (analyzing ? t('analyzing') : t('awaitingAi'))}
+                  <div className="pt-4 pb-2 border-b border-white/5 text-left">
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-accent mb-1 block">Inferred Condition</span>
+                    <h2 className="text-3xl font-black text-white tracking-tight uppercase leading-tight">
+                      {result?.possibleCondition || (analyzing ? t('analyzing') : t('awaitingAi'))}
                     </h2>
                     <div className="flex items-center gap-2 mt-2">
                        <p className="text-slate-500 text-[10px] leading-relaxed uppercase tracking-tighter">
@@ -263,13 +258,32 @@ export default function Result() {
                        {!isPending && result?.confidence && (
                          <div className="flex items-center gap-1 px-2 py-0.5 bg-brand-accent/10 rounded-full border border-brand-accent/20">
                             <Award className="w-3 h-3 text-brand-accent" />
-                            <span className="text-[9px] font-bold text-brand-accent">{(result.confidence * 100).toFixed(1)}% {t('confidence')}</span>
+                            <span className="text-[9px] font-bold text-brand-accent">{result.confidence} {t('confidence')}</span>
                          </div>
                        )}
                     </div>
+                    {result?.clinicalSummary && (
+                      <p className="text-xs text-slate-400 mt-4 leading-relaxed border-t border-white/5 pt-4">
+                        <b>SUMMARY:</b> {result.clinicalSummary}
+                      </p>
+                    )}
                   </div>
 
-                  {result?.severity === 'HIGH' && (
+                  {!isPending && result?.triageReasoning && (
+                    <div className="bg-white/5 rounded-2xl p-4 border border-white/10 text-left space-y-2">
+                       <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Clinical Triage Reasoning</span>
+                       <ul className="space-y-1">
+                          {result.triageReasoning.map((r, i) => (
+                            <li key={i} className="text-[10px] text-slate-400 flex gap-2">
+                               <span className="text-brand-accent tabular-nums">{i+1}.</span>
+                               {r}
+                            </li>
+                          ))}
+                       </ul>
+                    </div>
+                  )}
+
+                  {(result?.severity === 'HIGH' || result?.severity === 'CRITICAL' || result?.emergency) && (
                     <motion.div 
                       initial={{ scale: 0.9, opacity: 0 }}
                       animate={{ scale: 1, opacity: 1 }}
@@ -277,9 +291,13 @@ export default function Result() {
                     >
                       <strong className="text-xs uppercase font-black flex items-center gap-2">
                         <AlertTriangle className="w-4 h-4" />
-                        CRITICAL ALERT SIMULATED
+                        {result?.severity === 'CRITICAL' ? 'CRITICAL EMERGENCY ALERT' : 'HIGH SEVERITY ALERT'}
                       </strong>
-                      <p className="text-[12px] leading-relaxed">High severity condition detected. Immediate consultation required. System has logged a priority alert to the clinical console.</p>
+                      <p className="text-[12px] leading-relaxed">
+                        {result?.severity === 'CRITICAL' 
+                          ? 'Life-threatening condition suspected. Immediate emergency dispatch required. Visual evidence suggests severe trauma or systemic infection.' 
+                          : 'High severity condition detected. Immediate consultation required. System has logged a priority alert to the clinical console.'}
+                      </p>
                     </motion.div>
                   )}
                 </motion.div>
@@ -335,36 +353,23 @@ export default function Result() {
             </div>
             
             {!isPending ? (
-              <div className={`grid ${result?.severity === 'HIGH' ? 'md:grid-cols-2' : 'grid-cols-1'} gap-8 relative z-10`}>
-                <div className="space-y-4">
-                  <h4 className="text-slate-100 font-bold flex items-center gap-2 underline decoration-brand-accent underline-offset-4">{t('aiDirectives')}</h4>
-                  <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
-                    <p className="text-sm text-slate-400 leading-relaxed italic">
-                      "{result?.advice || 'No specific advice provided for this condition.'}"
+              <div className="space-y-8">
+                <div className="grid grid-cols-1 gap-8 relative z-10">
+                  <div className="space-y-4">
+                    <h4 className="text-slate-100 font-bold flex items-center gap-2 underline decoration-brand-accent underline-offset-4">
+                      Care & Prevention Methods
+                    </h4>
+                  <div className="bg-white/5 p-6 rounded-2xl border border-white/10 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-100 transition-opacity">
+                      <Stethoscope className="w-5 h-5 text-brand-accent" />
+                    </div>
+                    <p className="text-base text-slate-200 leading-relaxed font-medium">
+                      {result?.recommendedAction || 'No specific care instructions provided.'}
                     </p>
                   </div>
-                  <ul className="space-y-3 pt-2">
-                    {[
-                      'Observe area for changes hourly',
-                      'Keep area clean and dry',
-                    ].map((item, i) => (
-                      <li key={i} className="text-sm text-slate-400 flex gap-2">
-                        <span className="text-brand-accent opacity-50">•</span> {item}
-                      </li>
-                    ))}
-                  </ul>
                 </div>
-                {result?.severity === 'HIGH' && (
-                  <div className="space-y-4">
-                    <h4 className="text-slate-100 font-bold flex items-center gap-2 underline decoration-brand-accent underline-offset-4">{t('dispatchStatus')}</h4>
-                    <div className="text-xs text-slate-500 font-mono space-y-2">
-                      <div className="flex justify-between"><span>{t('queue')}:</span> <span className="text-brand-accent/70">PRIORITY_ALPHA_01</span></div>
-                      <div className="flex justify-between"><span>{t('sector')}:</span> <span className="text-brand-accent/70">RURAL_NORTH_PRIMARY</span></div>
-                      <div className="flex justify-between"><span>{t('logging')}:</span> <span className="text-green-400/70">SYSTEM_SYNC_OK</span></div>
-                    </div>
-                  </div>
-                )}
               </div>
+            </div>
             ) : (
                 <div className="space-y-4">
                     <div className="h-4 bg-white/5 rounded w-full animate-pulse" />

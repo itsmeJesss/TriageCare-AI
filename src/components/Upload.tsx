@@ -8,6 +8,12 @@ export default function Upload() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [location, setLocation] = useState('');
+  const [symptoms, setSymptoms] = useState({
+    fever: false,
+    difficultyBreathing: false,
+    extremePain: false,
+    confusion: false,
+  });
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -50,6 +56,7 @@ export default function Upload() {
     const formData = new FormData();
     formData.append('image', file);
     formData.append('location', location);
+    formData.append('symptoms', JSON.stringify(symptoms));
 
     try {
       const response = await fetch('/api/upload', {
@@ -57,11 +64,23 @@ export default function Upload() {
         body: formData,
       });
 
-      const data = await response.json();
-
+      const contentType = response.headers.get("content-type");
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to upload');
+        if (contentType && contentType.includes("application/json")) {
+          const data = await response.json();
+          throw new Error(data.error || 'Failed to upload');
+        } else {
+          const text = await response.text();
+          console.error("Non-JSON upload error:", text);
+          throw new Error(`Upload failed with server error (${response.status})`);
+        }
       }
+
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Server returned non-JSON format after upload.");
+      }
+
+      const data = await response.json();
 
       // Redirect to results page after a small delay to show progress
       setTimeout(() => {
@@ -153,6 +172,32 @@ export default function Upload() {
                 className="w-full pl-12 pr-4 py-4 bg-black/20 border border-white/10 rounded-xl text-white placeholder:text-slate-600 focus:border-brand-accent transition-all outline-none"
               />
             </div>
+          </div>
+
+          <div className="space-y-4">
+             <span className="text-[11px] uppercase tracking-[0.2em] text-slate-500 font-bold block">Patient Systemic Symptoms</span>
+             <div className="grid grid-cols-2 gap-3">
+                {[
+                  { id: 'fever', label: 'Fever / Chills' },
+                  { id: 'difficultyBreathing', label: 'Breathing Difficulty' },
+                  { id: 'extremePain', label: 'Extreme Local Pain' },
+                  { id: 'confusion', label: 'Confusion / Dizziness' },
+                ].map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setSymptoms(prev => ({ ...prev, [s.id]: !prev[s.id as keyof typeof symptoms] }))}
+                    className={`p-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all text-left flex items-center justify-between ${
+                      symptoms[s.id as keyof typeof symptoms] 
+                        ? 'bg-brand-accent/20 border-brand-accent text-brand-accent' 
+                        : 'bg-white/5 border-white/10 text-slate-500'
+                    }`}
+                  >
+                    {s.label}
+                    <div className={`w-3 h-3 rounded-sm border ${symptoms[s.id as keyof typeof symptoms] ? 'bg-brand-accent border-brand-accent' : 'border-white/20'}`} />
+                  </button>
+                ))}
+             </div>
           </div>
 
           {error && (

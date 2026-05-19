@@ -1,12 +1,13 @@
 {
   "name": "TriageCare AI",
-  "description": "AI-driven healthcare triage system for rural healthcare. Analyzes skin and eye conditions using AWS Rekognition.",
+  "description": "AI-driven healthcare triage system for rural healthcare. Analyzes skin and eye conditions using Gemini Vision AI.",
   "requestFramePermissions": [
     "camera"
   ],
   "majorCapabilities": [
     "AI Vision",
     "Healthcare Triage",
-    "Cloud Storage"
+    "Cloud Storage",
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]
 }
