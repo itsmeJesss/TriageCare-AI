@@ -1,0 +1,7 @@
+server.ts
+lambda/
+AWS_SETUP.md
+.env
+node_modules
+dist
+public/uploads
