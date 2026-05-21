@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import fs from "fs";
+import cors from "cors";
 
 // Import handlers from our Vercel-ready API folder
 // Note: In local dev, we manually route these.
@@ -18,26 +19,42 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Middleware for API routes (Selective)
+  // Add CORS
+  app.use(cors());
+
+  // Middleware for API routes (Selective Body Parsing)
   app.use((req, res, next) => {
-    if (req.path === "/api/upload") {
-      next(); // Don't parse body for uploads
-    } else {
-      express.json()(req, res, next);
+    // Log every API request
+    if (req.path.startsWith('/api')) {
+      console.log(`[SERVER] API Request: ${req.method} ${req.path}`);
     }
+
+    // Skip body parsing for uploads to let Busboy handle it directly
+    if (req.path === "/api/upload" || req.path === "/api/upload/") {
+      return next();
+    }
+    
+    // For other API routes, parse JSON
+    if (req.path.startsWith('/api')) {
+      return express.json()(req, res, next);
+    }
+    
+    next();
   });
 
   // Adapt Vercel handlers to Express for local dev
   const adapt = (handler: any) => async (req: any, res: any) => {
     try {
-      // Vercel Request and Response are slightly different from Express, 
-      // but for these simple handlers they are mostly compatible 
-      // or we can shim missing stuff.
+      console.log(`[ADAPTER] Calling handler for ${req.path}`);
       await handler(req, res);
     } catch (err: any) {
-      console.error("API Error:", err);
+      console.error("[ADAPTER] API Handler Error:", err);
       if (!res.headersSent) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ 
+          error: "Internal Server Error", 
+          details: err.message,
+          path: req.path
+        });
       }
     }
   };

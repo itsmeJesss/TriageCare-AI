@@ -29,6 +29,10 @@ export interface PatientRecord {
 }
 
 export async function uploadImage(buffer: Buffer, mimeType: string): Promise<{ url: string, key: string }> {
+  if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_S3_BUCKET_NAME) {
+    throw new Error("AWS credentials or S3 bucket name not configured in environment variables.");
+  }
+
   const patientId = uuidv4();
   const fileExt = mimeType.split('/')[1] || 'jpg';
   const key = `uploads/${patientId}.${fileExt}`;
