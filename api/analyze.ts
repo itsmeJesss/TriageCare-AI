@@ -1,7 +1,7 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { GoogleGenAI, Type } from "@google/genai";
-import { getRecord, saveRecord, getImage, getSignedUrl } from '../_lib/s3';
-import { calculateClinicalSeverity } from '../_lib/severity';
+import { getRecord, saveRecord, getImage, getSignedUrl } from './_lib/s3';
+import { calculateClinicalSeverity } from './_lib/severity';
 
 // Utility to get Gemini instance (identical to server.ts logic)
 let genAIInstance: GoogleGenAI | null = null;

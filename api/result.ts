@@ -1,5 +1,5 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
-import { getRecord, saveRecord, getSignedUrl } from '../_lib/s3';
+import { getRecord, saveRecord, getSignedUrl } from './_lib/s3';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { patientId } = req.query;

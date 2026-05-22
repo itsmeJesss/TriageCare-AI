@@ -60,7 +60,7 @@ exports.handler = async (event) => {
             const snsParams = {
                 Message: `URGENT: High severity condition detected for Patient ID: ${patientId}. Please review immediately. Location data is stored in the system.`,
                 Subject: 'Healthcare Alert: HIGH Severity Condition Detected',
-                TopicArn: process.env.SNS_TOPIC_ARN
+                TopicArn: process.env.AWS_SNS_TOPIC_ARN || process.env.SNS_TOPIC_ARN
             };
             await sns.publish(snsParams).promise();
             console.log('SNS Notification Sent.');

@@ -9,8 +9,8 @@ import cors from "cors";
 // Note: In local dev, we manually route these.
 import uploadHandler from "./api/upload.ts";
 import healthHandler from "./api/health.ts";
-import analyzeHandler from "./api/analyze/[patientId].ts";
-import resultHandler from "./api/result/[patientId].ts";
+import analyzeHandler from "./api/analyze.ts";
+import resultHandler from "./api/result.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
