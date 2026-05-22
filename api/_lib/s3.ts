@@ -1,11 +1,24 @@
 import AWS from 'aws-sdk';
 import { v4 as uuidv4 } from 'uuid';
 
-const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  region: process.env.AWS_REGION
-});
+let s3Instance: AWS.S3 | null = null;
+export function getS3(): AWS.S3 {
+  if (!s3Instance) {
+    const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+    const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+    const region = process.env.AWS_REGION || 'us-east-1';
+    
+    if (!accessKeyId || !secretAccessKey) {
+      throw new Error("AWS Credentials (AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY) are not set.");
+    }
+    s3Instance = new AWS.S3({
+      accessKeyId,
+      secretAccessKey,
+      region
+    });
+  }
+  return s3Instance;
+}
 
 const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME || '';
 
@@ -37,6 +50,7 @@ export async function uploadImage(buffer: Buffer, mimeType: string): Promise<{ u
   const fileExt = mimeType.split('/')[1] || 'jpg';
   const key = `uploads/${patientId}.${fileExt}`;
 
+  const s3 = getS3();
   await s3.putObject({
     Bucket: BUCKET_NAME,
     Key: key,
@@ -59,6 +73,7 @@ export async function uploadImage(buffer: Buffer, mimeType: string): Promise<{ u
 }
 
 export async function getSignedUrl(key: string): Promise<string> {
+  const s3 = getS3();
   return s3.getSignedUrlPromise('getObject', {
     Bucket: BUCKET_NAME,
     Key: key,
@@ -67,6 +82,7 @@ export async function getSignedUrl(key: string): Promise<string> {
 }
 
 export async function saveRecord(record: PatientRecord) {
+  const s3 = getS3();
   await s3.putObject({
     Bucket: BUCKET_NAME,
     Key: `records/${record.patientId}.json`,
@@ -77,6 +93,7 @@ export async function saveRecord(record: PatientRecord) {
 
 export async function getRecord(patientId: string): Promise<PatientRecord | null> {
   try {
+    const s3 = getS3();
     const data = await s3.getObject({
       Bucket: BUCKET_NAME,
       Key: `records/${patientId}.json`
@@ -88,6 +105,7 @@ export async function getRecord(patientId: string): Promise<PatientRecord | null
 }
 
 export async function getImage(key: string): Promise<Buffer> {
+  const s3 = getS3();
   const data = await s3.getObject({
     Bucket: BUCKET_NAME,
     Key: key

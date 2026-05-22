@@ -16,7 +16,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   return new Promise((resolve, reject) => {
-    const busboy = Busboy({ headers: req.headers });
+    const busboy = typeof Busboy === 'function' 
+      ? Busboy({ headers: req.headers }) 
+      : (Busboy as any).default({ headers: req.headers });
     let imageBuffer: Buffer | null = null;
     let mimeType = '';
     let filename = '';

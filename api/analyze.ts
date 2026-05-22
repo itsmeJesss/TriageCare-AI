@@ -64,7 +64,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const prompt = `Perform objective visual extraction of this medical image. Respond in ${langName}.`;
 
     const aiResponse = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.5-flash",
       contents: {
         parts: [
           { text: prompt },
