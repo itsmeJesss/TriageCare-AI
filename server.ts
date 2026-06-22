@@ -104,20 +104,23 @@ async function startServer() {
   });
 
   // --- Vite Middleware ---
-  if (process.env.NODE_ENV !== "production") {
+  const distPath = path.join(process.cwd(), "dist");
+  const isRunningTs = import.meta.url.endsWith("server.ts");
+  const useVite = process.env.NODE_ENV !== "production" || !fs.existsSync(path.join(distPath, "index.html")) || isRunningTs;
+
+  if (useVite) {
+    console.log("[SERVER] Starting in development mode with Vite middleware.");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
-    if (fs.existsSync(distPath)) {
-      app.use(express.static(distPath));
-      app.get("*", (req, res) => {
-        res.sendFile(path.join(distPath, "index.html"));
-      });
-    }
+    console.log("[SERVER] Starting in production mode serving static files.");
+    app.use(express.static(distPath));
+    app.get("*", (req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
+    });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
