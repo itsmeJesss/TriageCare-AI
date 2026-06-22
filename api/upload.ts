@@ -1,6 +1,6 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import Busboy from 'busboy';
-import { uploadImage, saveRecord, PatientRecord } from './_lib/s3';
+import { uploadImage, saveRecord, PatientRecord } from './_lib/s3.js';
 
 export const config = {
   api: {
