@@ -8,11 +8,22 @@ export const config = {
   },
 };
 
+function sendJSON(res: any, status: number, data: any) {
+  if (res.headersSent) return;
+  const jsonString = JSON.stringify(data);
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(jsonString)
+  });
+  res.end(jsonString);
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   console.log(`[UPLOAD] Handler started. Method: ${req.method}`);
   
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    sendJSON(res, 405, { error: 'Method not allowed' });
+    return;
   }
 
   return new Promise((resolve, reject) => {
@@ -60,7 +71,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         if (!imageBuffer) {
           console.error('[UPLOAD] Error: No image buffer captured after retries');
-          res.status(400).json({ error: 'No image provided or file too large/truncated' });
+          sendJSON(res, 400, { error: 'No image provided or file too large/truncated' });
           return resolve(true);
         }
 
@@ -93,30 +104,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await saveRecord(record);
 
         console.log(`[UPLOAD] Success. Returning response.`);
-        res.status(200).json({ patientId, message: "Upload successful. Awaiting AI analysis..." });
+        sendJSON(res, 200, { patientId, message: "Upload successful. Awaiting AI analysis..." });
         resolve(true);
       } catch (error: any) {
         console.error('[UPLOAD] Handler internal error:', error);
-        if (!res.headersSent) {
-          res.status(500).json({ error: "S3 Error", details: error.message });
-        }
+        sendJSON(res, 500, { error: "S3 Error", details: error.message });
         resolve(true);
       }
     });
 
     busboy.on('error', (err) => {
       console.error('[UPLOAD] Busboy parsing error:', err);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Failed to parse form' });
-      }
+      sendJSON(res, 500, { error: 'Failed to parse form' });
       resolve(true);
     });
 
     req.on('error', (err) => {
       console.error('[UPLOAD] Request stream error:', err);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Request stream error' });
-      }
+      sendJSON(res, 500, { error: 'Request stream error' });
       resolve(true);
     });
 

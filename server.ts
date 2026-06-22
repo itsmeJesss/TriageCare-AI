@@ -22,6 +22,18 @@ async function startServer() {
   // Add CORS
   app.use(cors());
 
+  // Monitor response headers and status codes for API routes
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      const originalSend = res.send;
+      res.send = function (body) {
+        console.log(`[MONITOR] Outgoing API Response: ${req.method} ${req.path} -> Status ${res.statusCode}, Content-Type: ${res.get('Content-Type')}`);
+        return originalSend.apply(this, [body]);
+      };
+    }
+    next();
+  });
+
   // Middleware for API routes (Selective Body Parsing)
   app.use((req, res, next) => {
     // Log every API request

@@ -81,12 +81,36 @@ export async function getSignedUrl(key: string): Promise<string> {
   });
 }
 
+export function getImageKeyFromUrl(key: string): string {
+  if (key && key.startsWith('http')) {
+    try {
+      const urlObj = new URL(key);
+      let path = decodeURIComponent(urlObj.pathname);
+      if (path.startsWith('/')) {
+        path = path.substring(1);
+      }
+      if (BUCKET_NAME && path.startsWith(BUCKET_NAME + '/')) {
+        path = path.substring(BUCKET_NAME.length + 1);
+      }
+      return path;
+    } catch (e) {
+      console.error("[S3] Failed to parse key from URL:", key, e);
+    }
+  }
+  return key;
+}
+
 export async function saveRecord(record: PatientRecord) {
   const s3 = getS3();
+  const recordToSave = { ...record };
+  if (recordToSave.imageUrl) {
+    recordToSave.imageUrl = getImageKeyFromUrl(recordToSave.imageUrl);
+  }
+  
   await s3.putObject({
     Bucket: BUCKET_NAME,
-    Key: `records/${record.patientId}.json`,
-    Body: JSON.stringify(record),
+    Key: `records/${recordToSave.patientId}.json`,
+    Body: JSON.stringify(recordToSave),
     ContentType: 'application/json'
   }).promise();
 }
@@ -106,9 +130,10 @@ export async function getRecord(patientId: string): Promise<PatientRecord | null
 
 export async function getImage(key: string): Promise<Buffer> {
   const s3 = getS3();
+  const cleanKey = getImageKeyFromUrl(key);
   const data = await s3.getObject({
     Bucket: BUCKET_NAME,
-    Key: key
+    Key: cleanKey
   }).promise();
   return data.Body as Buffer;
 }

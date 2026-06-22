@@ -17,6 +17,57 @@ function getGenAI() {
   return genAIInstance;
 }
 
+// Helper to perform content generation with retry and fallback for high-demand spikes (503/429/etc)
+async function generateContentWithRetryAndFallback(ai: GoogleGenAI, params: any) {
+  const modelsToTry = ["gemini-3.5-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"];
+  let lastError: any = null;
+
+  for (const modelName of modelsToTry) {
+    const maxRetries = 2; // Try up to 2 times for each model to adapt faster
+    let delay = 1000; // start with 1 second delay
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`[GEMINI] Attempting content generation with model: ${modelName} (Attempt ${attempt}/${maxRetries})`);
+        
+        // Clone params to modify model name safely
+        const currentParams = {
+          ...params,
+          model: modelName
+        };
+
+        const response = await ai.models.generateContent(currentParams);
+        console.log(`[GEMINI] Success with model: ${modelName}`);
+        return response;
+      } catch (error: any) {
+        lastError = error;
+        const errorMessage = error.message || "";
+        console.error(`[GEMINI] Error with ${modelName} on attempt ${attempt}/${maxRetries}:`, errorMessage);
+        
+        const isTransient = 
+          errorMessage.includes("503") || 
+          errorMessage.includes("UNAVAILABLE") || 
+          errorMessage.includes("high demand") || 
+          errorMessage.includes("ResourceExhausted") || 
+          errorMessage.includes("status: 503") ||
+          errorMessage.includes("status: 429") ||
+          (error.status && (error.status === 503 || error.status === 429));
+
+        if (isTransient && attempt < maxRetries) {
+          console.warn(`[GEMINI] Transient error detected. Retrying in ${delay}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          delay *= 1.5; // slight exponential backoff
+        } else {
+          console.warn(`[GEMINI] Moving to next model fallback if available.`);
+          break; // Try fallback model if any remain
+        }
+      }
+    }
+  }
+
+  throw lastError || new Error("All model attempts failed after retry and fallback.");
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -63,7 +114,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     
     const prompt = `Perform objective visual extraction of this medical image. Respond in ${langName}.`;
 
-    const aiResponse = await ai.models.generateContent({
+    const aiResponse = await generateContentWithRetryAndFallback(ai, {
       model: "gemini-3.5-flash",
       contents: {
         parts: [
