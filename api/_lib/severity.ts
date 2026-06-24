@@ -47,8 +47,13 @@ export function calculateClinicalSeverity(ai: AISignals, patient: PatientSymptom
     score = 4;
     reasoning.push("CRITICAL: Visual evidence of necrotic tissue/gangrene detected.");
   } else if (ai.spread === 'SYSTEMIC' || ai.rapidSpread) {
-    score = Math.max(score, 3.5);
-    reasoning.push("HIGH: Rapidly advancing or systemic distribution observed.");
+    if (ai.condition?.toLowerCase() === 'chickenpox') {
+      score = Math.max(score, 2.5);
+      reasoning.push("Chickenpox typically presents with systemic spread; considered medium severity.");
+    } else {
+      score = Math.max(score, 3.5);
+      reasoning.push("HIGH: Rapidly advancing or systemic distribution observed.");
+    }
   } else if (ai.spread === 'REGIONAL') {
     score += 0.5;
     reasoning.push("Regional spread detected (+0.5).");

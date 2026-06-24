@@ -1,6 +1,13 @@
 import AWS from 'aws-sdk';
 import { v4 as uuidv4 } from 'uuid';
 
+// Memory fallback storage is used when S3 is not configured
+const useFallback = !process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_S3_BUCKET_NAME;
+
+// In-process fallback store
+export const fallbackRecords = new Map<string, any>();
+export const fallbackImages = new Map<string, { buffer: Buffer, mimeType: string }>();
+
 let s3Instance: AWS.S3 | null = null;
 export function getS3(): AWS.S3 {
   if (!s3Instance) {
@@ -42,6 +49,18 @@ export interface PatientRecord {
 }
 
 export async function uploadImage(buffer: Buffer, mimeType: string): Promise<{ url: string, key: string }> {
+  if (useFallback) {
+    const patientId = uuidv4();
+    const fileExt = mimeType.split('/')[1] || 'jpg';
+    const key = `uploads/${patientId}.${fileExt}`;
+    fallbackImages.set(key, { buffer, mimeType });
+    console.log(`[S3-FALLBACK] Uploaded image in-memory key: ${key}`);
+    return { 
+      url: key,
+      key 
+    };
+  }
+
   if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_S3_BUCKET_NAME) {
     throw new Error("AWS credentials or S3 bucket name not configured in environment variables.");
   }
@@ -56,23 +75,20 @@ export async function uploadImage(buffer: Buffer, mimeType: string): Promise<{ u
     Key: key,
     Body: buffer,
     ContentType: mimeType,
-    // Note: We use public-read if we want direct URLs, or handle signed URLs
-    // For simplicity with the existing frontend which uses /uploads/..., 
-    // we'll store the key and retrieve it.
   }).promise();
 
-  // In a real S3 setup, we might use a CDN or signed URL. 
-  // For the Vercel migration, we'll store the object and can potentially 
-  // serve it via a proxy or signed URL.
-  // The original app used `/uploads/${filename}` which was served from public/uploads.
-  // We'll return a special marker or just the key.
   return { 
-    url: key, // We'll handle this in the result/analyze endpoints
+    url: key, 
     key 
   };
 }
 
 export async function getSignedUrl(key: string): Promise<string> {
+  if (useFallback) {
+    console.log(`[S3-FALLBACK] Generating local retrieval URL for key: ${key}`);
+    return `/api/local-image?key=${encodeURIComponent(key)}`;
+  }
+
   const s3 = getS3();
   return s3.getSignedUrlPromise('getObject', {
     Bucket: BUCKET_NAME,
@@ -101,6 +117,16 @@ export function getImageKeyFromUrl(key: string): string {
 }
 
 export async function saveRecord(record: PatientRecord) {
+  if (useFallback) {
+    const recordToSave = { ...record };
+    if (recordToSave.imageUrl) {
+      recordToSave.imageUrl = getImageKeyFromUrl(recordToSave.imageUrl);
+    }
+    fallbackRecords.set(recordToSave.patientId, recordToSave);
+    console.log(`[S3-FALLBACK] Saved patient record in-memory for ID: ${recordToSave.patientId}`);
+    return;
+  }
+
   const s3 = getS3();
   const recordToSave = { ...record };
   if (recordToSave.imageUrl) {
@@ -116,6 +142,16 @@ export async function saveRecord(record: PatientRecord) {
 }
 
 export async function getRecord(patientId: string): Promise<PatientRecord | null> {
+  if (useFallback) {
+    const record = fallbackRecords.get(patientId);
+    if (!record) {
+      console.log(`[S3-FALLBACK] Patient record not found in-memory for ID: ${patientId}`);
+      return null;
+    }
+    console.log(`[S3-FALLBACK] Retrieved patient record from-memory for ID: ${patientId}`);
+    return record;
+  }
+
   try {
     const s3 = getS3();
     const data = await s3.getObject({
@@ -129,6 +165,15 @@ export async function getRecord(patientId: string): Promise<PatientRecord | null
 }
 
 export async function getImage(key: string): Promise<Buffer> {
+  if (useFallback) {
+    const cleanKey = getImageKeyFromUrl(key);
+    const data = fallbackImages.get(cleanKey);
+    if (!data) {
+      throw new Error(`[S3-FALLBACK] Image key ${cleanKey} not found in fallback storage.`);
+    }
+    return data.buffer;
+  }
+
   const s3 = getS3();
   const cleanKey = getImageKeyFromUrl(key);
   const data = await s3.getObject({
@@ -137,3 +182,4 @@ export async function getImage(key: string): Promise<Buffer> {
   }).promise();
   return data.Body as Buffer;
 }
+

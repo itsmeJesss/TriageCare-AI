@@ -1,6 +1,6 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import Busboy from 'busboy';
-import { uploadImage, saveRecord, PatientRecord } from './_lib/s3.js';
+import { uploadImage, saveRecord, PatientRecord } from './_lib/s3';
 
 export const config = {
   api: {
@@ -10,12 +10,18 @@ export const config = {
 
 function sendJSON(res: any, status: number, data: any) {
   if (res.headersSent) return;
-  const jsonString = JSON.stringify(data);
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(jsonString)
-  });
-  res.end(jsonString);
+  if (typeof res.status === 'function' && typeof res.json === 'function') {
+    console.log(`[UPLOAD] sendJSON using status().json(): Status=${status}`);
+    res.status(status).json(data);
+  } else {
+    console.log(`[UPLOAD] sendJSON using writeHead(): Status=${status}`);
+    const jsonString = JSON.stringify(data);
+    res.writeHead(status, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Length': Buffer.byteLength(jsonString)
+    });
+    res.end(jsonString);
+  }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -27,26 +33,53 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   return new Promise((resolve, reject) => {
-    const busboy = typeof Busboy === 'function' 
-      ? Busboy({ headers: req.headers }) 
-      : (Busboy as any).default({ headers: req.headers });
+    let busboy;
+    try {
+      busboy = typeof Busboy === 'function' 
+        ? Busboy({ headers: req.headers }) 
+        : (Busboy as any).default({ headers: req.headers });
+    } catch (err: any) {
+      console.error('[UPLOAD] Busboy initialization failed:', err);
+      sendJSON(res, 400, { error: 'Invalid request format or missing multipart headers', details: err.message });
+      return resolve(true);
+    }
+
     let imageBuffer: Buffer | null = null;
     let mimeType = '';
     let filename = '';
     const fields: Record<string, string> = {};
     let isFinished = false;
+    const filePromises: Promise<void>[] = [];
 
-    busboy.on('file', (fieldname, file, info) => {
-      const { filename: fname, mimeType: mtype } = info;
+    busboy.on('file', (fieldname, file, infoOrFilename, encoding, mimetype) => {
+      let fname = '';
+      let mtype = '';
+      if (infoOrFilename && typeof infoOrFilename === 'object') {
+        fname = (infoOrFilename as any).filename || '';
+        mtype = (infoOrFilename as any).mimeType || (infoOrFilename as any).mimetype || '';
+      } else {
+        fname = typeof infoOrFilename === 'string' ? infoOrFilename : '';
+        mtype = mimetype || '';
+      }
+
       console.log(`[UPLOAD] Receiving file: ${fname} (${mtype})`);
       filename = fname;
       mimeType = mtype;
       const chunks: any[] = [];
-      file.on('data', (data) => chunks.push(data));
-      file.on('end', () => {
-        imageBuffer = Buffer.concat(chunks);
-        console.log(`[UPLOAD] File buffer complete. Size: ${imageBuffer.length} bytes`);
+
+      const filePromise = new Promise<void>((resolveFile) => {
+        file.on('data', (data) => chunks.push(data));
+        file.on('end', () => {
+          imageBuffer = Buffer.concat(chunks);
+          console.log(`[UPLOAD] File buffer complete. Size: ${imageBuffer.length} bytes`);
+          resolveFile();
+        });
+        file.on('error', (err) => {
+          console.error(`[UPLOAD] File stream error:`, err);
+          resolveFile(); // resolve to let the flow continue and handle gracefully
+        });
       });
+      filePromises.push(filePromise);
     });
 
     busboy.on('field', (fieldname, val) => {
@@ -60,17 +93,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       console.log(`[UPLOAD] Busboy finish triggered`);
 
       try {
-        if (!imageBuffer) {
-          // Retry logic (sometimes finish fires slightly before end of stream)
-          let retries = 0;
-          while (!imageBuffer && retries < 20) {
-            await new Promise(r => setTimeout(r, 50));
-            retries++;
-          }
-        }
+        // Wait for all file streams to completely buffer
+        await Promise.all(filePromises);
 
         if (!imageBuffer) {
-          console.error('[UPLOAD] Error: No image buffer captured after retries');
+          console.error('[UPLOAD] Error: No image buffer captured after processing');
           sendJSON(res, 400, { error: 'No image provided or file too large/truncated' });
           return resolve(true);
         }
@@ -79,7 +106,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const { key } = await uploadImage(imageBuffer, mimeType);
         
         const patientId = key.split('/')[1].split('.')[0];
-        console.log(`[UPLOAD] Image saved to S3. Key: ${key}. Generated Patient ID: ${patientId}`);
+        console.log(`[UPLOAD] Image saved. Key: ${key}. Generated Patient ID: ${patientId}`);
 
         let patientSymptoms = undefined;
         if (fields.symptoms) {
@@ -100,7 +127,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           patientSymptoms
         };
 
-        console.log(`[UPLOAD] Saving record to S3...`);
+        console.log(`[UPLOAD] Saving record...`);
         await saveRecord(record);
 
         console.log(`[UPLOAD] Success. Returning response.`);
@@ -108,20 +135,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         resolve(true);
       } catch (error: any) {
         console.error('[UPLOAD] Handler internal error:', error);
-        sendJSON(res, 500, { error: "S3 Error", details: error.message });
+        sendJSON(res, 500, { error: "S3/Storage Error", details: error.message });
         resolve(true);
       }
     });
 
     busboy.on('error', (err) => {
       console.error('[UPLOAD] Busboy parsing error:', err);
-      sendJSON(res, 500, { error: 'Failed to parse form' });
+      sendJSON(res, 500, { error: 'Failed to parse form', details: err.message });
       resolve(true);
     });
 
     req.on('error', (err) => {
       console.error('[UPLOAD] Request stream error:', err);
-      sendJSON(res, 500, { error: 'Request stream error' });
+      sendJSON(res, 500, { error: 'Request stream error', details: err.message });
       resolve(true);
     });
 

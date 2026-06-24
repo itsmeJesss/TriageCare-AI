@@ -62,7 +62,8 @@ export default function Result() {
       const response = await fetch(`/api/analyze/${patientId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ language })
+        body: JSON.stringify({ language }),
+        credentials: 'include'
       });
 
       const contentType = response.headers.get("content-type");
@@ -97,7 +98,9 @@ export default function Result() {
   useEffect(() => {
     const fetchResult = async () => {
       try {
-        const response = await fetch(`/api/result/${patientId}`);
+        const response = await fetch(`/api/result/${patientId}`, {
+          credentials: 'include'
+        });
         const contentType = response.headers.get("content-type");
 
         if (!response.ok) {

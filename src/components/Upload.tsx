@@ -62,6 +62,7 @@ export default function Upload() {
       const response = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
+        credentials: 'include',
       });
 
       const contentType = response.headers.get("content-type");
@@ -77,7 +78,9 @@ export default function Upload() {
       }
 
       if (!contentType || !contentType.includes("application/json")) {
-        throw new Error("Server returned non-JSON format after upload.");
+        const text = await response.text();
+        console.error("Non-JSON successful upload response:", text);
+        throw new Error(`Server returned non-JSON format after upload. Content-Type: ${contentType || 'none'}. Body: ${text.slice(0, 250)}`);
       }
 
       const data = await response.json();

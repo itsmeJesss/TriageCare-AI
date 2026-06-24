@@ -11,13 +11,20 @@ import uploadHandler from "./api/upload.ts";
 import healthHandler from "./api/health.ts";
 import analyzeHandler from "./api/analyze.ts";
 import resultHandler from "./api/result.ts";
+import localImageHandler from "./api/local-image.ts";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+let __filename = "";
+let __dirname = "";
+try {
+  __filename = fileURLToPath(import.meta.url);
+  __dirname = path.dirname(__filename);
+} catch (e) {
+  // CommonJS fallback or safe default
+}
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT || 3000);
 
   // Add CORS
   app.use(cors());
@@ -74,6 +81,9 @@ async function startServer() {
   // Health
   app.get("/api/health", adapt(healthHandler));
 
+  // Local Image Retrieval Fallback
+  app.get("/api/local-image", adapt(localImageHandler));
+
   // Upload (uses Busboy, needs bodyParser disabled)
   // We use the same 'adapt' but we don't use express.json() for this one 
   // actually app.use(express.json()) is global above. 
@@ -105,7 +115,7 @@ async function startServer() {
 
   // --- Vite Middleware ---
   const distPath = path.join(process.cwd(), "dist");
-  const isRunningTs = import.meta.url.endsWith("server.ts");
+  const isRunningTs = process.argv[1] ? process.argv[1].endsWith("server.ts") : false;
   const useVite = process.env.NODE_ENV !== "production" || !fs.existsSync(path.join(distPath, "index.html")) || isRunningTs;
 
   if (useVite) {

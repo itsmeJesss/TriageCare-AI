@@ -19,53 +19,90 @@ function getGenAI() {
 
 // Helper to perform content generation with retry and fallback for high-demand spikes (503/429/etc)
 async function generateContentWithRetryAndFallback(ai: GoogleGenAI, params: any) {
-  const modelsToTry = ["gemini-3.5-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"];
+  // Use gemini-3.1-flash-lite as the primary model since it's the absolute fastest and lowest latency model,
+  // falling back to gemini-3.5-flash and gemini-flash-latest to ensure maximum reliability and speed.
+  const modelsToTry = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"];
   let lastError: any = null;
 
   for (const modelName of modelsToTry) {
-    const maxRetries = 2; // Try up to 2 times for each model to adapt faster
-    let delay = 1000; // start with 1 second delay
+    let skipModel = false;
+    // Try both with and without response schema
+    const configsToTry = [
+      { useSchema: true },
+      { useSchema: false }
+    ];
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        console.log(`[GEMINI] Attempting content generation with model: ${modelName} (Attempt ${attempt}/${maxRetries})`);
-        
-        // Clone params to modify model name safely
-        const currentParams = {
-          ...params,
-          model: modelName
-        };
+    for (const configOpt of configsToTry) {
+      if (skipModel) {
+        console.warn(`[GEMINI] Skipping remaining configs for model ${modelName} due to transient service error.`);
+        break;
+      }
 
-        const response = await ai.models.generateContent(currentParams);
-        console.log(`[GEMINI] Success with model: ${modelName}`);
-        return response;
-      } catch (error: any) {
-        lastError = error;
-        const errorMessage = error.message || "";
-        console.error(`[GEMINI] Error with ${modelName} on attempt ${attempt}/${maxRetries}:`, errorMessage);
-        
-        const isTransient = 
-          errorMessage.includes("503") || 
-          errorMessage.includes("UNAVAILABLE") || 
-          errorMessage.includes("high demand") || 
-          errorMessage.includes("ResourceExhausted") || 
-          errorMessage.includes("status: 503") ||
-          errorMessage.includes("status: 429") ||
-          (error.status && (error.status === 503 || error.status === 429));
+      const maxRetries = 2; // Keep at 2 retries per config variant to avoid overall timeout
+      let delay = 500; // start with 500ms delay for snappier fallback if needed
 
-        if (isTransient && attempt < maxRetries) {
-          console.warn(`[GEMINI] Transient error detected. Retrying in ${delay}ms...`);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          delay *= 1.5; // slight exponential backoff
-        } else {
-          console.warn(`[GEMINI] Moving to next model fallback if available.`);
-          break; // Try fallback model if any remain
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          console.log(`[GEMINI] Attempting content generation with model: ${modelName} (Attempt ${attempt}/${maxRetries}, Schema: ${configOpt.useSchema})`);
+          
+          // Clone parameters minimally so we do not stringify massive base64 image data
+          const currentParams = {
+            ...params,
+            model: modelName,
+            config: params.config ? { ...params.config } : undefined
+          };
+
+          if (!configOpt.useSchema) {
+            if (currentParams.config) {
+              const cleanedConfig = { ...currentParams.config };
+              delete cleanedConfig.responseSchema;
+              cleanedConfig.systemInstruction = (cleanedConfig.systemInstruction || "") + 
+                "\nCRITICAL: You must return the response as a valid, parsable JSON object matching the schema exactly. Wrap it inside standard ```json <object> ``` block.";
+              currentParams.config = cleanedConfig;
+            }
+          }
+
+          const response = await ai.models.generateContent(currentParams);
+          console.log(`[GEMINI] Success! Model: ${modelName}, Schema: ${configOpt.useSchema}`);
+          return response;
+        } catch (error: any) {
+          lastError = error;
+          const errorMessage = error.message || "";
+          console.error(`[GEMINI] Error with ${modelName} (Attempt ${attempt}/${maxRetries}, Schema: ${configOpt.useSchema}):`, errorMessage);
+          
+          const isTransient = 
+            errorMessage.includes("503") || 
+            errorMessage.includes("UNAVAILABLE") || 
+            errorMessage.includes("high demand") || 
+            errorMessage.includes("ResourceExhausted") || 
+            errorMessage.includes("status: 503") ||
+            errorMessage.includes("status: 429") ||
+            (error.status && (error.status === 503 || error.status === 429));
+
+          if (isTransient) {
+            if (attempt < maxRetries) {
+              // Add custom random Jitter to prevent concurrent collisions on demand spikes
+              const jitter = Math.floor(Math.random() * 300) + 100;
+              const sleepTime = delay + jitter;
+              console.warn(`[GEMINI] Transient error detected. Retrying in ${sleepTime}ms...`);
+              await new Promise((resolve) => setTimeout(resolve, sleepTime));
+              delay *= 1.5; // exponential backoff
+            } else {
+              console.warn(`[GEMINI] Max retries reached for transient error on ${modelName}. Skipping model entirely.`);
+              skipModel = true;
+              break;
+            }
+          } else {
+            // Not a transient error (e.g. invalid request, validation, etc.)
+            // Break directly to try the other config
+            break;
+          }
         }
       }
     }
   }
 
-  throw lastError || new Error("All model attempts failed after retry and fallback.");
+  throw lastError || new Error("All model attempts failed after exhaustive retry and fallback.");
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -154,7 +191,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const responseText = aiResponse.text;
     if (!responseText) throw new Error("AI engine returned empty response.");
 
-    const aiExtraction = JSON.parse(responseText.replace(/```json/g, "").replace(/```/g, "").trim());
+    let cleanedText = responseText.trim();
+    if (cleanedText.startsWith("```")) {
+      cleanedText = cleanedText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+    }
+    
+    let aiExtraction: any;
+    try {
+      aiExtraction = JSON.parse(cleanedText.trim());
+    } catch (parseErr: any) {
+      console.error("[ANALYZE] Direct JSON parse failed, trying to find brackets:", parseErr);
+      // Fallback: extract the outer-most JSON object using standard brace matching if garbage is mixed
+      const startIdx = cleanedText.indexOf('{');
+      const endIdx = cleanedText.lastIndexOf('}');
+      if (startIdx !== -1 && endIdx !== -1) {
+        aiExtraction = JSON.parse(cleanedText.slice(startIdx, endIdx + 1));
+      } else {
+        throw parseErr;
+      }
+    }
 
     const patientSymptomLog = record.patientSymptoms || {
       fever: false, difficultyBreathing: false, extremePain: false, confusion: false
