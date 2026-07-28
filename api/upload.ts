@@ -87,9 +87,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       fields[fieldname] = val;
     });
 
+    console.log(`[UPLOAD] Setting up Busboy handlers...`);
+    
+    // Safety timeout for busboy processing on serverless functions
+    const timeoutTimer = setTimeout(() => {
+      if (!isFinished) {
+        isFinished = true;
+        console.error('[UPLOAD] Busboy processing timed out.');
+        sendJSON(res, 504, { error: 'Upload request processing timed out. Please try again with a smaller file.' });
+        resolve(true);
+      }
+    }, 25000);
+
+    const cleanup = () => {
+      clearTimeout(timeoutTimer);
+    };
+
     busboy.on('finish', async () => {
       if (isFinished) return;
       isFinished = true;
+      cleanup();
       console.log(`[UPLOAD] Busboy finish triggered`);
 
       try {
@@ -98,12 +115,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         if (!imageBuffer) {
           console.error('[UPLOAD] Error: No image buffer captured after processing');
-          sendJSON(res, 400, { error: 'No image provided or file too large/truncated' });
+          sendJSON(res, 400, { error: 'No image file found in the request. Please attach an image.' });
           return resolve(true);
         }
 
-        console.log(`[UPLOAD] Processing S3 upload...`);
-        const { key } = await uploadImage(imageBuffer, mimeType);
+        console.log(`[UPLOAD] Processing image storage...`);
+        const { key } = await uploadImage(imageBuffer, mimeType || 'image/jpeg');
         
         const patientId = key.split('/')[1].split('.')[0];
         console.log(`[UPLOAD] Image saved. Key: ${key}. Generated Patient ID: ${patientId}`);
@@ -123,7 +140,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           location: fields.location || 'Unknown Location',
           timestamp: new Date().toISOString(),
           imageUrl: key,
-          mimeType: mimeType,
+          mimeType: mimeType || 'image/jpeg',
           patientSymptoms
         };
 
@@ -135,24 +152,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         resolve(true);
       } catch (error: any) {
         console.error('[UPLOAD] Handler internal error:', error);
-        sendJSON(res, 500, { error: "S3/Storage Error", details: error.message });
+        sendJSON(res, 500, { error: "Storage Error", details: error.message });
         resolve(true);
       }
     });
 
     busboy.on('error', (err) => {
+      if (isFinished) return;
+      isFinished = true;
+      cleanup();
       console.error('[UPLOAD] Busboy parsing error:', err);
-      sendJSON(res, 500, { error: 'Failed to parse form', details: err.message });
+      sendJSON(res, 400, { error: 'Failed to parse uploaded form data', details: err.message });
       resolve(true);
     });
 
     req.on('error', (err) => {
+      if (isFinished) return;
+      isFinished = true;
+      cleanup();
       console.error('[UPLOAD] Request stream error:', err);
       sendJSON(res, 500, { error: 'Request stream error', details: err.message });
       resolve(true);
     });
 
-    console.log(`[UPLOAD] Piping request to Busboy...`);
-    req.pipe(busboy);
+    // Check if Vercel serverless environment pre-parsed req.body
+    if (req.body && Buffer.isBuffer(req.body)) {
+      console.log(`[UPLOAD] req.body is Buffer (${req.body.length} bytes), writing to busboy`);
+      busboy.end(req.body);
+    } else if (req.body && typeof req.body === 'string') {
+      console.log(`[UPLOAD] req.body is string (${req.body.length} chars), writing to busboy`);
+      busboy.end(Buffer.from(req.body, 'utf-8'));
+    } else {
+      console.log(`[UPLOAD] Piping req stream to busboy`);
+      req.pipe(busboy);
+    }
   });
 }
