@@ -217,7 +217,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const triage = calculateClinicalSeverity(
       { ...aiExtraction.aiSymptoms, condition: aiExtraction.possibleCondition },
-      patientSymptomLog
+      patientSymptomLog,
+      language || 'en'
     );
 
     const finalResult = {

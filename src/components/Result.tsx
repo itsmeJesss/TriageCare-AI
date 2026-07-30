@@ -150,20 +150,20 @@ export default function Result() {
         <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto border border-red-500/20">
           <AlertTriangle className="text-red-500 w-10 h-10" />
         </div>
-        <h2 className="text-2xl font-bold text-white">Analysis Interrupted</h2>
+        <h2 className="text-2xl font-bold text-white">{t('analysisInterrupted')}</h2>
         <div className="glass-panel p-6 rounded-2xl border border-red-500/10 bg-red-500/5">
           <p className="text-slate-300 text-sm leading-relaxed">{error}</p>
         </div>
         
         <div className="flex justify-center gap-4">
           <Link to="/upload" className="px-6 py-3 bg-brand-primary text-white rounded-xl font-bold hover:scale-105 transition-all">
-            Try Another Image
+            {t('tryAnotherImage')}
           </Link>
           <button 
             onClick={() => window.location.reload()} 
             className="px-6 py-3 bg-white/5 text-slate-300 border border-white/10 rounded-xl font-bold hover:bg-white/10 transition-all"
           >
-            Retry Analysis
+            {t('retryAnalysis')}
           </button>
         </div>
       </div>
@@ -206,11 +206,11 @@ export default function Result() {
       <div className="flex flex-col md:flex-row justify-between items-start gap-4 mb-4">
         <div>
           <h1 className="text-3xl font-bold text-white tracking-tight">{t('visionEngineAnalysis')}</h1>
-          <p className="text-slate-400 mt-1 uppercase text-[11px] tracking-widest font-bold">Patient ID: <b className="text-slate-200 font-mono">{patientId?.slice(0, 8).toUpperCase()}</b> &bull; {t('rualNode')}</p>
+          <p className="text-slate-400 mt-1 uppercase text-[11px] tracking-widest font-bold">{t('patientIdLabel')}: <b className="text-slate-200 font-mono">{patientId?.slice(0, 8).toUpperCase()}</b> &bull; {t('rualNode')}</p>
         </div>
         <div className="status-pill text-brand-accent border-brand-accent/20 bg-brand-accent/10">
           <div className="w-2 h-2 bg-brand-accent rounded-full animate-pulse" />
-          LOCAL AI ENGINE: ONLINE
+          {t('localAiOnline')}
         </div>
       </div>
 
@@ -246,11 +246,11 @@ export default function Result() {
                     result?.severity === 'MEDIUM' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' : 
                     'bg-green-500/15 text-green-400 border border-green-500/30'
                   }`}>
-                    {result?.severity} {t('severity')}
+                    {result?.severity ? t(`severity${result.severity}` as any) : ''} {t('severity')}
                   </div>
 
                   <div className="pt-4 pb-2 border-b border-white/5 text-left">
-                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-accent mb-1 block">Inferred Condition</span>
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-accent mb-1 block">{t('inferredCondition')}</span>
                     <h2 className="text-3xl font-black text-white tracking-tight uppercase leading-tight">
                       {result?.possibleCondition || (analyzing ? t('analyzing') : t('awaitingAi'))}
                     </h2>
@@ -266,20 +266,20 @@ export default function Result() {
                        )}
                     </div>
                     {result?.clinicalSummary && (
-                      <p className="text-xs text-slate-400 mt-4 leading-relaxed border-t border-white/5 pt-4">
-                        <b>SUMMARY:</b> {result.clinicalSummary}
+                      <p className="text-base text-slate-200 mt-4 leading-relaxed border-t border-white/10 pt-4 font-normal">
+                        <b className="text-brand-accent font-bold uppercase tracking-wide">{t('summaryLabel')}:</b> {result.clinicalSummary}
                       </p>
                     )}
                   </div>
 
                   {!isPending && result?.triageReasoning && (
-                    <div className="bg-white/5 rounded-2xl p-4 border border-white/10 text-left space-y-2">
-                       <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Clinical Triage Reasoning</span>
-                       <ul className="space-y-1">
+                    <div className="bg-white/5 rounded-2xl p-5 border border-white/10 text-left space-y-3">
+                       <span className="text-xs font-black uppercase tracking-widest text-slate-300 block">{t('triageReasoningTitle')}</span>
+                       <ul className="space-y-2">
                           {result.triageReasoning.map((r, i) => (
-                            <li key={i} className="text-[10px] text-slate-400 flex gap-2">
-                               <span className="text-brand-accent tabular-nums">{i+1}.</span>
-                               {r}
+                            <li key={i} className="text-xs md:text-sm text-slate-200 font-medium flex gap-2.5 leading-relaxed">
+                               <span className="text-brand-accent font-bold tabular-nums shrink-0">{i+1}.</span>
+                               <span>{r}</span>
                             </li>
                           ))}
                        </ul>
@@ -290,16 +290,16 @@ export default function Result() {
                     <motion.div 
                       initial={{ scale: 0.9, opacity: 0 }}
                       animate={{ scale: 1, opacity: 1 }}
-                      className="bg-red-500/10 border-l-4 border-red-500 p-4 text-left space-y-2 mt-4 text-red-500"
+                      className="bg-red-500/15 border-l-4 border-red-500 p-5 rounded-r-2xl text-left space-y-2 mt-5 text-red-400"
                     >
-                      <strong className="text-xs uppercase font-black flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4" />
-                        {result?.severity === 'CRITICAL' ? 'CRITICAL EMERGENCY ALERT' : 'HIGH SEVERITY ALERT'}
+                      <strong className="text-sm md:text-base uppercase font-black flex items-center gap-2 text-red-400 tracking-wider">
+                        <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 animate-pulse" />
+                        {result?.severity === 'CRITICAL' ? t('criticalEmergencyAlert') : t('highSeverityAlert')}
                       </strong>
-                      <p className="text-[12px] leading-relaxed">
+                      <p className="text-sm md:text-base leading-relaxed font-semibold text-red-200">
                         {result?.severity === 'CRITICAL' 
-                          ? 'Life-threatening condition suspected. Immediate emergency dispatch required. Visual evidence suggests severe trauma or systemic infection.' 
-                          : 'High severity condition detected. Immediate consultation required. System has logged a priority alert to the clinical console.'}
+                          ? t('criticalAlertDesc')
+                          : t('highAlertDesc')}
                       </p>
                     </motion.div>
                   )}
@@ -360,14 +360,14 @@ export default function Result() {
                 <div className="grid grid-cols-1 gap-8 relative z-10">
                   <div className="space-y-4">
                     <h4 className="text-slate-100 font-bold flex items-center gap-2 underline decoration-brand-accent underline-offset-4">
-                      Care & Prevention Methods
+                      {t('careMethodsTitle')}
                     </h4>
                   <div className="bg-white/5 p-6 rounded-2xl border border-white/10 relative overflow-hidden group">
                     <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-100 transition-opacity">
                       <Stethoscope className="w-5 h-5 text-brand-accent" />
                     </div>
                     <p className="text-base text-slate-200 leading-relaxed font-medium">
-                      {result?.recommendedAction || 'No specific care instructions provided.'}
+                      {result?.recommendedAction || t('noCareInstructions')}
                     </p>
                   </div>
                 </div>

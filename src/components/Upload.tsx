@@ -24,7 +24,7 @@ export default function Upload() {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       if (selectedFile.size > 10 * 1024 * 1024) {
-        setError('Image is too large. Maximum size is 10MB.');
+        setError(t('imageTooLarge'));
         return;
       }
       setFile(selectedFile);
@@ -46,7 +46,7 @@ export default function Upload() {
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file || !location) {
-      setError('Please provide both an image and your location.');
+      setError(t('provideImageAndLocation'));
       return;
     }
 
@@ -104,7 +104,7 @@ export default function Upload() {
         </div>
         <div className="status-pill border-brand-accent/20 text-brand-accent bg-brand-accent/10">
           <div className="w-2 h-2 bg-brand-accent rounded-full" />
-          SYSTEM: READY FOR UPLOAD
+          {t('systemReadyUpload')}
         </div>
       </div>
 
@@ -128,7 +128,7 @@ export default function Upload() {
                 <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center font-bold text-2xl text-slate-400 group-hover:scale-110 group-hover:text-brand-accent transition-all">+</div>
                 <div className="text-center">
                   <p className="text-slate-200 font-bold">{t('selectImage')}</p>
-                  <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest">(JPG, PNG up to 10MB)</p>
+                  <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest">{t('fileLimits')}</p>
                 </div>
                 <input
                   ref={fileInputRef}
@@ -159,32 +159,32 @@ export default function Upload() {
             )}
            </AnimatePresence>
 
-           <div className="aws-node uppercase">SOURCE: Client_Node_Symmetry</div>
+           <div className="aws-node uppercase">{t('sourceClientNode')}</div>
         </div>
 
         <form onSubmit={handleUpload} className="space-y-8 flex flex-col justify-end">
           <div className="space-y-3">
-            <span className="text-[11px] uppercase tracking-[0.2em] text-slate-500 font-bold block">Patient Current Location</span>
+            <span className="text-[11px] uppercase tracking-[0.2em] text-slate-500 font-bold block">{t('patientLocation')}</span>
             <div className="relative">
               <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-brand-accent w-5 h-5" />
               <input
                 type="text"
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
-                placeholder="District Health Center, Block B..."
+                placeholder={t('locationPlaceholder')}
                 className="w-full pl-12 pr-4 py-4 bg-black/20 border border-white/10 rounded-xl text-white placeholder:text-slate-600 focus:border-brand-accent transition-all outline-none"
               />
             </div>
           </div>
 
           <div className="space-y-4">
-             <span className="text-[11px] uppercase tracking-[0.2em] text-slate-500 font-bold block">Patient Systemic Symptoms</span>
+             <span className="text-[11px] uppercase tracking-[0.2em] text-slate-500 font-bold block">{t('systemicSymptoms')}</span>
              <div className="grid grid-cols-2 gap-3">
                 {[
-                  { id: 'fever', label: 'Fever / Chills' },
-                  { id: 'difficultyBreathing', label: 'Breathing Difficulty' },
-                  { id: 'extremePain', label: 'Extreme Local Pain' },
-                  { id: 'confusion', label: 'Confusion / Dizziness' },
+                  { id: 'fever', label: t('symptomFever') },
+                  { id: 'difficultyBreathing', label: t('symptomBreathing') },
+                  { id: 'extremePain', label: t('symptomPain') },
+                  { id: 'confusion', label: t('symptomConfusion') },
                 ].map((s) => (
                   <button
                     key={s.id}
@@ -205,7 +205,7 @@ export default function Upload() {
 
           {error && (
             <div className="p-4 bg-red-500/10 text-red-400 rounded-xl border border-red-500/20 text-[11px] uppercase tracking-widest font-bold">
-              ERROR: {error}
+              {t('errorLabel')}: {error}
             </div>
           )}
 
