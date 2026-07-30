@@ -2,10 +2,6 @@
   "buildCommand": "vite build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/upload", "destination": "/api/upload" },
-    { "source": "/api/analyze/:patientId", "destination": "/api/analyze?patientId=:patientId" },
-    { "source": "/api/result/:patientId", "destination": "/api/result?patientId=:patientId" },
-    { "source": "/api/health", "destination": "/api/health" },
-    { "source": "/api/(.*)", "destination": "/api/$1" }
+    { "source": "/api/(.*)", "destination": "/api/index" }
   ]
 }
