@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -8,9 +8,17 @@ import {
   Stethoscope,
   Loader2,
   Award,
+  Download,
+  FileCheck,
+  Clock,
+  ShieldAlert,
+  CheckCircle2
 } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import { useLanguage } from '../lib/LanguageContext';
 import { PatientSymptomLog, AISignals } from '../lib/severityEngine';
+import { PdfReportTemplate } from './PdfReportTemplate';
 
 interface TriageResult {
   patientId: string;
@@ -20,6 +28,8 @@ interface TriageResult {
   confidence?: string;
   clinicalSummary?: string;
   recommendedAction?: string;
+  careDirectives?: string[];
+  followUpSuggestion?: string;
   emergency?: boolean;
   location: string;
   timestamp: string;
@@ -42,6 +52,73 @@ export default function Result() {
   const [error, setError] = useState<string | null>(null);
   const { t, language, setLanguage } = useLanguage();
   const [analyzingForNewLanguage, setAnalyzingForNewLanguage] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+
+  const handleDownloadPdf = async () => {
+    if (!result || downloadingPdf) return;
+    try {
+      setDownloadingPdf(true);
+      const element = document.getElementById('pdf-report-container');
+      if (!element) {
+        throw new Error("PDF Report template element not ready.");
+      }
+
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        onclone: (clonedDoc) => {
+          // Replace unsupported Tailwind v4 oklch() color functions in cloned document styles
+          const styleElements = Array.from(clonedDoc.querySelectorAll('style'));
+          styleElements.forEach((styleEl) => {
+            if (styleEl.textContent && styleEl.textContent.includes('oklch')) {
+              styleEl.textContent = styleEl.textContent.replace(/oklch\([^)]*\)/gi, '#38bdf8');
+            }
+          });
+
+          const allElements = Array.from(clonedDoc.querySelectorAll<HTMLElement>('*'));
+          allElements.forEach((el) => {
+            const inlineStyle = el.getAttribute('style');
+            if (inlineStyle && inlineStyle.includes('oklch')) {
+              el.setAttribute('style', inlineStyle.replace(/oklch\([^)]*\)/gi, '#38bdf8'));
+            }
+          });
+        }
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const imgWidth = 210;
+      const pageHeight = 297;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      const cleanId = (patientId || 'Patient').slice(0, 8).toUpperCase();
+      pdf.save(`TriageCare_Clinical_Report_${cleanId}.pdf`);
+    } catch (err: any) {
+      console.error("PDF Export Error:", err);
+      alert("Unable to generate PDF report: " + (err.message || 'Unknown error'));
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
 
   // Handle language change re-triggering analysis
   useEffect(() => {
@@ -349,46 +426,116 @@ export default function Result() {
             </motion.div>
           )}
 
-          <div className="glass-panel rounded-[2.5rem] p-8 md:p-10 relative overflow-hidden">
-            <div className="w-full flex justify-between items-center mb-8">
-              <span className="text-[11px] uppercase tracking-[0.2em] text-slate-500 font-bold">{t('clinicalRecs')}</span>
+          <div className="glass-panel rounded-[2.5rem] p-8 md:p-10 relative overflow-hidden space-y-6">
+            <div className="w-full flex justify-between items-center mb-2">
+              <div className="flex items-center gap-2">
+                <Stethoscope className="w-5 h-5 text-brand-accent" />
+                <span className="text-[11px] uppercase tracking-[0.2em] text-slate-300 font-bold">{t('careMethodsTitle')}</span>
+              </div>
               <LangSwitcher />
             </div>
             
             {!isPending ? (
-              <div className="space-y-8">
-                <div className="grid grid-cols-1 gap-8 relative z-10">
-                  <div className="space-y-4">
-                    <h4 className="text-slate-100 font-bold flex items-center gap-2 underline decoration-brand-accent underline-offset-4">
-                      {t('careMethodsTitle')}
-                    </h4>
-                  <div className="bg-white/5 p-6 rounded-2xl border border-white/10 relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-100 transition-opacity">
-                      <Stethoscope className="w-5 h-5 text-brand-accent" />
+              <div className="space-y-6 relative z-10">
+                {/* Primary Recommendation */}
+                <div className="bg-brand-accent/10 p-5 rounded-2xl border border-brand-accent/30">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-brand-accent block mb-1">
+                    Primary Action Directives
+                  </span>
+                  <p className="text-base text-white leading-relaxed font-semibold">
+                    {result?.recommendedAction || t('noCareInstructions')}
+                  </p>
+                </div>
+
+                {/* Step-by-Step Care Directives */}
+                <div className="space-y-3">
+                  <h4 className="text-xs font-black uppercase tracking-widest text-slate-300 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    AI Infection Care Protocol ({result?.severity === 'LOW' || result?.severity === 'MEDIUM' ? 'Low/Medium Severity Focus' : 'Urgent Protocol'})
+                  </h4>
+                  <ul className="space-y-2.5">
+                    {(result?.careDirectives && result.careDirectives.length > 0 ? result.careDirectives : [
+                      "Wound Hygiene: Clean gently twice daily with clean water and mild non-perfumed soap. Pat dry with a single-use cloth.",
+                      "Redness Border Tracking: Mark the border of redness with a clean pen. Re-inspect every 6-12 hours for expansion.",
+                      "Protection & Elevation: Keep covered with a sterile bandage and elevate affected limb to relieve swelling.",
+                      "Symptom Tracking: Measure body temperature twice daily. Do NOT pick, squeeze, or pop any lesions."
+                    ]).map((step, idx) => (
+                      <li key={idx} className="bg-white/5 p-3.5 rounded-xl border border-white/10 text-xs md:text-sm text-slate-200 flex gap-3 items-start leading-relaxed">
+                        <span className="w-5 h-5 rounded-full bg-brand-accent text-brand-bg font-black shrink-0 flex items-center justify-center text-[10px]">
+                          {idx + 1}
+                        </span>
+                        <span>{step}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Follow-Up Suggestion */}
+                {(result?.followUpSuggestion || result?.severity) && (
+                  <div className="bg-sky-500/10 p-4 rounded-xl border border-sky-500/20 text-xs text-sky-200 space-y-1">
+                    <div className="flex items-center gap-2 font-bold text-sky-400 uppercase tracking-wider text-[11px]">
+                      <Clock className="w-4 h-4" />
+                      Follow-Up & Reassessment Directive
                     </div>
-                    <p className="text-base text-slate-200 leading-relaxed font-medium">
-                      {result?.recommendedAction || t('noCareInstructions')}
+                    <p className="leading-relaxed font-medium">
+                      {result?.followUpSuggestion || (
+                        (result?.severity === 'LOW' || result?.severity === 'MEDIUM')
+                          ? "Re-assess in 12-24 hours. Seek immediate medical attention if redness spreads past pen lines or fever develops."
+                          : "Immediate clinical re-evaluation required. Do not delay emergency consultation."
+                      )}
                     </p>
                   </div>
-                </div>
+                )}
               </div>
-            </div>
             ) : (
-                <div className="space-y-4">
-                    <div className="h-4 bg-white/5 rounded w-full animate-pulse" />
-                    <div className="h-4 bg-white/5 rounded w-5/6 animate-pulse" />
-                    <div className="h-4 bg-white/5 rounded w-4/6 animate-pulse" />
-                </div>
+              <div className="space-y-4">
+                <div className="h-4 bg-white/5 rounded w-full animate-pulse" />
+                <div className="h-4 bg-white/5 rounded w-5/6 animate-pulse" />
+                <div className="h-4 bg-white/5 rounded w-4/6 animate-pulse" />
+              </div>
             )}
             
             <Stethoscope className="absolute -bottom-12 -right-12 w-64 h-64 text-white opacity-[0.02] -rotate-12" />
           </div>
 
-          <div className="flex justify-end gap-4">
-             <Link to="/upload" className="px-6 py-3 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl font-bold text-xs uppercase tracking-widest border border-white/10 transition-all">{t('backToRoom')}</Link>
+          {/* Actions Bar: Download PDF & Return to Triage Room */}
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-2">
+            {!isPending && result && (
+              <button
+                onClick={handleDownloadPdf}
+                disabled={downloadingPdf}
+                className="w-full sm:w-auto px-6 py-3.5 bg-gradient-to-r from-brand-accent to-sky-500 hover:brightness-110 text-brand-bg font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-[0_0_25px_rgba(56,189,248,0.3)] flex items-center justify-center gap-2.5 active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                {downloadingPdf ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Generating PDF Report...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" />
+                    <span>Download PDF Clinical Report</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            <Link 
+              to="/upload" 
+              className="w-full sm:w-auto text-center px-6 py-3.5 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl font-bold text-xs uppercase tracking-widest border border-white/10 transition-all"
+            >
+              {t('backToRoom')}
+            </Link>
           </div>
         </div>
       </div>
+
+      {/* Hidden Off-Screen Container for Pixel-Perfect PDF Generation */}
+      {result && (
+        <div style={{ position: 'absolute', top: '-9999px', left: '-9999px', overflow: 'hidden' }}>
+          <PdfReportTemplate data={result} />
+        </div>
+      )}
     </div>
   );
 }

@@ -129,7 +129,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
     const langName = languageNames[language] || "English";
 
-    const systemInstruction = `You are a medical visual observation engine. Your task is to identify medical signs and provide care instructions.
+    const systemInstruction = `You are a medical visual observation engine and clinical assistant. Your task is to identify medical signs, assess infection observations, and provide actionable infection management care directives.
       
       CELLULITIS VS SEPSIS DIFFERENTIATION:
       - Cellulitis is a localized skin infection (redness, swelling, heat).
@@ -137,19 +137,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       - If you see red streaking, flag 'streaking' as true.
       - If the infection covers a massive area or seems to be spreading "while watching", flag 'rapidSpread' as true.
 
-      RULES:
+      RULES FOR CARE DIRECTIVES & FOLLOW-UP:
       1. Detect the most likely medical condition. If you see signs of systemic involvement (streaking, necrosis), explicitly mention the risk of Sepsis/Necrotizing Fasciitis.
       2. Identify visual signatures: swelling, redness, spread pattern, streaking, rapid spread, and tissue damage.
       3. CRITICAL: In 'recommendedAction', provide clear, actionable care steps. If sepsis markers are found, the first action MUST be "IMMEDIATE EMERGENCY ROOM EVALUATION".
-      4. Do NOT classify severity. Only extract objective observations.
-      5. Return response in ${langName} where appropriate.
-      6. Output MUST be valid JSON matching the schema.`;
+      4. Provide 3-5 specific, step-by-step infection care directives in 'careDirectives' (e.g. wound cleaning, border marking with pen, limb elevation, sterile dressing, fever checks).
+      5. Provide a clear 'followUpSuggestion' indicating reassessment timeline and red-flag symptoms.
+      6. Do NOT classify numerical severity directly. Only extract objective observations.
+      7. Return response in ${langName} where appropriate.
+      8. Output MUST be valid JSON matching the schema.`;
 
     const imageBuffer = await getImage(record.imageUrl);
     const base64Data = imageBuffer.toString("base64");
     const mimeType = record.mimeType || "image/jpeg";
     
-    const prompt = `Perform objective visual extraction of this medical image. Respond in ${langName}.`;
+    const prompt = `Perform objective visual extraction and generate step-by-step care directives for this medical image. Respond in ${langName}.`;
 
     const aiResponse = await generateContentWithRetryAndFallback(ai, {
       model: "gemini-3.5-flash",
@@ -169,6 +171,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             confidence: { type: Type.STRING },
             clinicalSummary: { type: Type.STRING },
             recommendedAction: { type: Type.STRING },
+            careDirectives: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: "3 to 5 step-by-step care directives for infection management"
+            },
+            followUpSuggestion: { type: Type.STRING, description: "Reassessment timeframe and warning triggers" },
             aiSymptoms: {
               type: Type.OBJECT,
               properties: {
@@ -183,7 +191,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               required: ["swelling", "redness", "spread", "tissueDamage", "discoloration", "streaking", "rapidSpread"]
             }
           },
-          required: ["possibleCondition", "confidence", "clinicalSummary", "recommendedAction", "aiSymptoms"]
+          required: ["possibleCondition", "confidence", "clinicalSummary", "recommendedAction", "careDirectives", "followUpSuggestion", "aiSymptoms"]
         }
       }
     });
